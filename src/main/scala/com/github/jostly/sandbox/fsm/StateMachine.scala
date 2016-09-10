@@ -1,17 +1,19 @@
 package com.github.jostly.sandbox.fsm
 
+import scala.util.{Failure, Success, Try}
+
 trait StateMachine[State, Cmd, Evt] {
+  def send(state: Option[State], command: Cmd): Try[Evt]
+  def handle(state: Option[State], event: Evt): Try[State]
+
   def send(state: List[Evt], command: Cmd): List[Evt] = {
     val s = state.foldRight(None.asInstanceOf[Option[State]])(replayFunc)
-    send(s, command) :: state
+    send(s, command).get :: state
   }
 
-  def replayFunc(e: Evt, s: Option[State]): Option[State] = {
-    Some(handle(s, e))
+  private def replayFunc(e: Evt, s: Option[State]): Option[State] = {
+    Some(handle(s, e).get)
   }
-
-  def send(state: Option[State], command: Cmd): Evt
-  def handle(state: Option[State], event: Evt): State
 }
 
 object StateMachine {
@@ -25,30 +27,33 @@ object StateMachine {
     )
 
   class Impl[S, C, E](val operations: List[(Option[S], List[Op[C, E, S]])]) extends StateMachine[S, C, E] {
-    override def send(state: Option[S], command: C): E = {
+    override def send(state: Option[S], command: C): Try[E] = {
+
       operations.find(_._1 == state) match {
         case Some((_, ops)) =>
           ops.find(op => op.emitFunc.isDefinedAt(command)) match {
             case Some(op) =>
               val e = op.emitFunc(command)
               println(s"Sent $command, got $e")
-              e
-            case None => throw new IllegalStateException(s"No action for $command in $state")
+              Success(e)
+            case None =>
+              Failure(new IllegalStateException(s"No action for $command in $state"))
           }
-        case None => throw new IllegalStateException(s"No actions in $state")
+        case None =>
+          Failure(new IllegalStateException(s"No actions in $state"))
       }
     }
-    override def handle(state: Option[S], event: E): S = {
+    override def handle(state: Option[S], event: E): Try[S] = {
       operations.find(_._1 == state) match {
         case Some((_, ops)) =>
           ops.find(op => op.handleFunc.isDefinedAt(event)) match {
             case Some(op) =>
-              op.handleFunc(event)
-              op.stateFunc(state)
+              Success(op.handleFunc(event))
             case None =>
-              throw new IllegalStateException(s"No handler for $event in $state")
+              Failure(new IllegalStateException(s"No handler for $event in $state"))
           }
-        case None => throw new IllegalStateException(s"No event handlers in $state")
+        case None =>
+          Failure(new IllegalStateException(s"No event handlers in $state"))
       }
     }
   }

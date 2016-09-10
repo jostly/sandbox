@@ -1,65 +1,70 @@
 package com.github.jostly.sandbox
 
+import scala.annotation.implicitNotFound
 import scala.reflect.ClassTag
-import scala.reflect.runtime.universe._
 
 package object fsm {
 
-  def when[C, E, S, S1, S2](s: S1)(ops: Op[C, E, S2]*)(implicit ev1: S1 <:< S, ev2: S2 <:< S): List[(Option[S], Op[C, E, S])] = {
-    ops.toList.map(x => (Some(ev1(s)), x.map(ev2)))
-  }
+  import Internal._
 
-  def whenIdle[C, E, S](ops: GotoOp[C, E, S]*): List[(Option[S], Op[C, E, S])] = {
-    ops.toList.map(x => (None, x))
-  }
-
-  def on[C: TypeTag : ClassTag] = new On[C]
-
-  class On[C: TypeTag : ClassTag] {
-
-    def emit[E: TypeTag : ClassTag](fn: C => E) = new Emit(fn)
-
-  }
-
-  class Emit[C: TypeTag : ClassTag, E: TypeTag : ClassTag](fn: C => E) {
-
-    val part: PartialFunction[Any, E] = {
-      case c: C => fn(c)
-    }
-
-    def and[S: ClassTag](s: stay.type) = {
-      new StayOp[C, E, S](part, { case e: E => println(s"Emit $e")}, { case Some(s: S) => s })
-    }
-    def and[S: TypeTag : ClassTag](g: goto[S]) = {
-      new GotoOp[C, E, S](part, { case e: E => println(s"Emit $e")}, { case _ => g.next }, g.next)
+  def when[C, E, S, S1, S2](s: S1)(ops: OpAndTransition[C, E, S2]*)(implicit ev1: S1 <:< S, ev2: S2 <:< S): List[(Option[S], Op[C, E, S])] = {
+    ops.toList.map {
+      case StayOp(a, b) =>
+        (Some(ev1(s)), Op[C, E, S](a, b.andThen(_ => ev1(s))))
+      case GotoOp(a, b, t) =>
+        (Some(ev1(s)), Op[C, E, S](a, b.andThen(_ => ev2(t))))
     }
   }
+
+  def whenIdle[C, E, S, I, S1](ops: GotoOp[C, E, S1]*)(implicit ev: ProvidesIdentity[E, I], ev1: S1 <:< S): List[(Option[S], Op[C, E, S])] = {
+    ops.toList.map { op =>
+      (None, Op[C, E, S](op.emitFunc, op.handleFunc.andThen(_ => ev1(op.target))))
+    }
+  }
+
+  def on[C: ClassTag] = new On[C]
 
   sealed trait StateChange
   case object stay extends StateChange
   case class goto[S](next: S) extends StateChange
 
-  sealed trait Op[+C, +E, +S] {
-    def emitFunc: PartialFunction[Any, E]
-    def handleFunc: PartialFunction[Any, Unit]
-    def stateFunc: PartialFunction[Option[Any], S]
-    def map[S1](f: S => S1): Op[C, E, S1]
+  object Internal {
+    class On[C: ClassTag] {
+
+      def emit[E: ClassTag](fn: C => E) = new Emit(fn)
+
+    }
+
+    class Emit[C: ClassTag, E: ClassTag](fn: C => E) {
+
+      val part: PartialFunction[Any, E] = {
+        case c: C => fn(c)
+      }
+
+      def and[S](s: stay.type) = {
+        new StayOp[C, E, S](part, { case e: E => println(s"Emit $e") })
+      }
+      def and[S](g: goto[S]) = {
+        new GotoOp[C, E, S](part, { case e: E => println(s"Emit $e") }, g.next)
+      }
+    }
+
+    sealed trait OpAndTransition[+C, +E, +S] {
+      def emitFunc: PartialFunction[Any, E]
+      def handleFunc: PartialFunction[Any, Unit]
+    }
+
+    case class StayOp[+C, +E, +S](emitFunc: PartialFunction[Any, E],
+                                  handleFunc: PartialFunction[Any, Unit]) extends OpAndTransition[C, E, S]
+
+    case class GotoOp[+C, +E, +S](emitFunc: PartialFunction[Any, E],
+                                  handleFunc: PartialFunction[Any, Unit],
+                                  target: S) extends OpAndTransition[C, E, S]
+
   }
 
-  class StayOp[C: TypeTag : ClassTag, E: TypeTag : ClassTag, S](val emitFunc: PartialFunction[Any, E],
-                                                                val handleFunc: PartialFunction[Any, Unit],
-                                                                val stateFunc: PartialFunction[Option[Any], S]) extends Op[C, E, S] {
-    override def toString = s"${typeTag[C].tpe} -> ${typeTag[E].tpe} -> stay"
-    override def map[S1](f: (S) => S1): Op[C, E, S1] = new StayOp[C, E, S1](emitFunc, handleFunc, stateFunc.andThen(f))
-  }
-
-  class GotoOp[C: TypeTag : ClassTag, E: TypeTag : ClassTag, S](val emitFunc: PartialFunction[Any, E],
-                                                                val handleFunc: PartialFunction[Any, Unit],
-                                                                val stateFunc: PartialFunction[Option[Any], S],
-                                                                g: S) extends Op[C, E, S] {
-    override def toString = s"${typeTag[C].tpe} -> ${typeTag[E].tpe} -> goto $g"
-    override def map[S1](f: (S) => S1): Op[C, E, S1] = new GotoOp[C, E, S1](emitFunc, handleFunc, stateFunc.andThen(f), f(g))
-  }
+  case class Op[+C, +E, +S](emitFunc: PartialFunction[Any, E],
+                            handleFunc: PartialFunction[Any, S])
 
   implicit class RichSender[E](root: List[E]) {
     def send[S, C, E1](cmd: C)(implicit cr: IsCommandReceiver[E, C, E1]): List[E1] = {
@@ -69,6 +74,11 @@ package object fsm {
 
   trait IsCommandReceiver[-Ein, -C, +EOut] {
     def send(state: List[Ein], command: C): List[EOut]
+  }
+
+  @implicitNotFound(msg = "Cannot prove that ${E} provides identity of type ${I}.")
+  trait ProvidesIdentity[E, I] {
+    def id(e: E): I
   }
 
 }

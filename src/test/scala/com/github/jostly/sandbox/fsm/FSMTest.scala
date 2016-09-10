@@ -6,7 +6,6 @@ import org.scalatest.{FunSuite, Inside, Matchers}
 
 class FSMTest extends FunSuite with Matchers with Inside {
 
-
   test("it") {
     import MyStateMachine._
     val stream = Nil
@@ -15,8 +14,6 @@ class FSMTest extends FunSuite with Matchers with Inside {
       .send(Complete())
     println("Event stream for complete order: " + stream)
   }
-
-
 
 }
 
@@ -47,10 +44,13 @@ object State {
 
 object MyStateMachine {
 
-  implicit val `MyStateMachine receives commands`: IsCommandReceiver[Event, Command, Event] with Object = new IsCommandReceiver[Event, Command, Event] {
+  implicit val `MyStateMachine receives commands`: IsCommandReceiver[Event, Command, Event] = new IsCommandReceiver[Event, Command, Event] {
     override def send(state: List[Event], command: Command): List[Event] = machine.send(state, command)
   }
 
+  implicit val `Requested provides identity`: ProvidesIdentity[Requested, Id] = new ProvidesIdentity[Requested, Id] {
+    override def id(e: Requested): Id = e.id
+  }
 
   val machine: StateMachine[State, Command, Event] = StateMachine(
     whenIdle(
