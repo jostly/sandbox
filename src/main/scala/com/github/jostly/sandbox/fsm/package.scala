@@ -42,10 +42,10 @@ package object fsm {
       }
 
       def and[S](s: stay.type) = {
-        new StayOp[C, E, S](part, { case e: E => println(s"Emit $e") })
+        new StayOp[C, E, S](part, { case e: E => }) // TODO: allow user to specify real handle function
       }
       def and[S](g: goto[S]) = {
-        new GotoOp[C, E, S](part, { case e: E => println(s"Emit $e") }, g.next)
+        new GotoOp[C, E, S](part, { case e: E => }, g.next)
       }
     }
 
@@ -67,13 +67,9 @@ package object fsm {
                             handleFunc: PartialFunction[Any, S])
 
   implicit class RichSender[E](root: List[E]) {
-    def send[S, C, E1](cmd: C)(implicit cr: IsCommandReceiver[E, C, E1]): List[E1] = {
+    def send[S, C, E1](cmd: C)(implicit cr: CommandReceiver[E, C, E1]): List[E1] = {
       cr.send(root, cmd)
     }
-  }
-
-  trait IsCommandReceiver[-Ein, -C, +EOut] {
-    def send(state: List[Ein], command: C): List[EOut]
   }
 
   @implicitNotFound(msg = "Cannot prove that ${E} provides identity of type ${I}.")

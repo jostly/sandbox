@@ -5,15 +5,35 @@ import java.time.ZonedDateTime
 import org.scalatest.{FunSuite, Inside, Matchers}
 
 class FSMTest extends FunSuite with Matchers with Inside {
+  import MyStateMachine._
 
-  test("it") {
-    import MyStateMachine._
-    val stream = Nil
+  test("building an order from events, extracting information") {
+    val order = Nil
       .send(Request(Id("17")))
       .send(Enrich(Name("johan")))
       .send(Complete())
-    println("Event stream for complete order: " + stream)
+
+    order should have size 3
+
+    order.id shouldBe Id("17")
+    order.name shouldBe Some(Name("johan"))
   }
+
+  test("extracting information from partial order") {
+    val order = Nil
+      .send(Request(Id("26")))
+
+    order should have size 1
+
+    order.id shouldBe Id("26")
+    order.name shouldBe None
+  }
+
+  test("extracting information from Nil treated as an order") {
+    Nil.name shouldBe None
+    a[NoSuchElementException] should be thrownBy Nil.id
+  }
+
 
 }
 
@@ -44,15 +64,16 @@ object State {
 
 object MyStateMachine {
 
-  implicit val `MyStateMachine receives commands`: IsCommandReceiver[Event, Command, Event] = new IsCommandReceiver[Event, Command, Event] {
-    override def send(state: List[Event], command: Command): List[Event] = machine.send(state, command)
+  implicit class Order(events: List[Event]) {
+    def id: Id = events.collect { case Requested(id, _) => id }.head
+    def name: Option[Name] = events.collect { case Enriched(name, _) => name }.headOption
   }
 
   implicit val `Requested provides identity`: ProvidesIdentity[Requested, Id] = new ProvidesIdentity[Requested, Id] {
     override def id(e: Requested): Id = e.id
   }
 
-  val machine: StateMachine[State, Command, Event] = StateMachine(
+  implicit val machine: StateMachine[State, Command, Event] = StateMachine(
     whenIdle(
       on[Request] emit (c => Requested(c.id)) and goto(State.Requested)
     ),

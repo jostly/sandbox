@@ -2,11 +2,15 @@ package com.github.jostly.sandbox.fsm
 
 import scala.util.{Failure, Success, Try}
 
-trait StateMachine[State, Cmd, Evt] {
+trait CommandReceiver[-Ein, -C, +EOut] {
+  def send(state: List[Ein], command: C): List[EOut]
+}
+
+trait StateMachine[State, Cmd, Evt] extends CommandReceiver[Evt, Cmd, Evt] {
   def send(state: Option[State], command: Cmd): Try[Evt]
   def handle(state: Option[State], event: Evt): Try[State]
 
-  def send(state: List[Evt], command: Cmd): List[Evt] = {
+  override def send(state: List[Evt], command: Cmd): List[Evt] = {
     val s = state.foldRight(None.asInstanceOf[Option[State]])(replayFunc)
     send(s, command).get :: state
   }
@@ -34,7 +38,6 @@ object StateMachine {
           ops.find(op => op.emitFunc.isDefinedAt(command)) match {
             case Some(op) =>
               val e = op.emitFunc(command)
-              println(s"Sent $command, got $e")
               Success(e)
             case None =>
               Failure(new IllegalStateException(s"No action for $command in $state"))
