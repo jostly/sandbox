@@ -15,6 +15,8 @@ trait StateMachine[State, Cmd, Evt] extends CommandReceiver[Evt, Cmd, Evt] {
     send(s, command).get :: state
   }
 
+  def showTransitions(): Unit
+
   private def replayFunc(e: Evt, s: Option[State]): Option[State] = {
     Some(handle(s, e).get)
   }
@@ -57,6 +59,17 @@ object StateMachine {
           }
         case None =>
           Failure(new IllegalStateException(s"No event handlers in $state"))
+      }
+    }
+    override def showTransitions(): Unit = {
+      for ((from, ops) <- operations;
+           op <- ops) {
+        val fromState = from.map(_.toString).getOrElse("Idle")
+        val toState = op.targetStateDescriptor match {
+          case `fromState` => "stay"
+          case x => s"go to $x"
+        }
+        println(s"In $fromState, on ${op.commandDescriptor} emit ${op.eventDescriptor} and $toState")
       }
     }
   }

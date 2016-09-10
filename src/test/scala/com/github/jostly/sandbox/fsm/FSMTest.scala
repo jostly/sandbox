@@ -9,6 +9,10 @@ class FSMTest extends FunSuite with Matchers with Inside {
 
   import MyStateMachine._
 
+  test("it") {
+    machine.showTransitions()
+  }
+
   test("building an order from events, extracting information") {
     val order = Nil
       .send(Request(Id("17")))
@@ -84,15 +88,13 @@ object MyStateMachine {
 
   implicit val machine: StateMachine[State, Command, Event] = StateMachine(
     whenIdle(
-      on[Request] emit (c => Requested(c.id)) and goto(State.Requested)
+      on[Request] emit (c => Requested(c.id)) to (e => println(s"Requested ${e.id}")) and goto(State.Requested)
     ),
-    when(State.Requested)(
+    when(State.Requested | State.Enriched)(
       on[SetName] emit (c => Enriched(name = Some(c.name))) and goto(State.Enriched),
       on[SetAddress] emit (c => Enriched(address = Some(c.address))) and goto(State.Enriched)
     ),
     when(State.Enriched)(
-      on[SetName] emit (c => Enriched(name = Some(c.name))) and stay,
-      on[SetAddress] emit (c => Enriched(address = Some(c.address))) and stay,
       on[Complete] emit (_ => Completed()) and goto(State.Completed),
       on[Fail] emit (_ => Failed()) and goto(State.Failed)
     )
